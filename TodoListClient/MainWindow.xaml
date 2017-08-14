@@ -26,7 +26,10 @@
                 </Button.Style>
 
             </Button>
-            <GroupBox Margin="0,0,0,0" Header="Create a To Do item">
+			<Button HorizontalAlignment="Right" Content="Sign In Direct" Margin="0,5" x:Name="SignIn2Button" Width="80" Height="30" Click="SignIn2Button_Click">
+			</Button>
+
+			<GroupBox Margin="0,0,0,0" Header="Create a To Do item">
 
                 <Grid Margin="0" HorizontalAlignment="Left" Width="388" >
                     <Grid.ColumnDefinitions>

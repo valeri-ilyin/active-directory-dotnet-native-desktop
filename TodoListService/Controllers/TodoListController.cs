@@ -64,7 +64,34 @@ namespace TodoListService.Controllers
                 throw new HttpResponseException(new HttpResponseMessage { StatusCode = HttpStatusCode.Unauthorized, ReasonPhrase = "The Scope claim does not contain 'user_impersonation' or scope claim not found" });
             }
 
-            if (null != todo && !string.IsNullOrWhiteSpace(todo.Title))
+			//if (ClaimsPrincipal.Current.FindFirst(ClaimTypes.GroupSid).Value == "8f27c022-7ee8-4de7-aa64-89173fb17b1b")
+			//{
+			//}
+
+			//var groups = ClaimsPrincipal.Current.FindAll(ClaimTypes.GroupSid).Select(c => c.Value).ToArray();
+
+			var principal = ClaimsPrincipal.Current;
+			//Claim writeValuesClaim = principal.Claims.FirstOrDefault(
+			//	c => c.Type == "http://schemas.microsoft.com/identity/claims/scope" &&
+			//		c.Value.Contains("Read_Write_CloudAlloc_WebAPI"));
+
+			// Look for the groups claim for the 'Dev/Test' group.
+			const string devTestGroup = "8f27c022-7ee8-4de7-aa64-89173fb17b1b";
+			Claim groupDevTestClaim = principal.Claims.FirstOrDefault(
+				c => c.Type == "groups" &&
+					c.Value.Equals(devTestGroup, StringComparison.CurrentCultureIgnoreCase));
+
+			// If the app has write permissions and the user is in the Dev/Test group...
+			//if ((null != writeValuesClaim) && (null != groupDevTestClaim))
+			//{
+			//	//
+			//	// Code to add the resource goes here.
+			//	//
+			//	return Request.CreateResponse(HttpStatusCode.Created);
+			//}
+
+
+			if (null != todo && !string.IsNullOrWhiteSpace(todo.Title))
             {
                 todoBag.Add(new TodoItem { Title = todo.Title, Owner = ClaimsPrincipal.Current.FindFirst(ClaimTypes.NameIdentifier).Value });
             }

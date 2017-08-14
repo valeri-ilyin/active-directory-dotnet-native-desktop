@@ -37,6 +37,10 @@ using System.Net.Http.Headers;
 using System.Web.Script.Serialization;
 using System.Runtime.InteropServices;
 using System.Configuration;
+using System.Net;
+using System.Collections.Specialized;
+using RestSharp;
+using Newtonsoft.Json;
 
 namespace TodoListClient
 {
@@ -69,7 +73,9 @@ namespace TodoListClient
         private HttpClient httpClient = new HttpClient();
         private AuthenticationContext authContext = null;
 
-        public  MainWindow()
+		private AuthenticationResult authResult = null;
+
+		public  MainWindow()
         {
             InitializeComponent();
             authContext = new AuthenticationContext(authority, new FileCache());
@@ -83,42 +89,23 @@ namespace TodoListClient
 
         private async void GetTodoList(bool isAppStarting)
         {
-            //
-            // Get an access token to call the To Do service.
-            //
-            AuthenticationResult result = null;
-            try
-            {
-                result = await authContext.AcquireTokenAsync(todoListResourceId, clientId, redirectUri, new PlatformParameters(PromptBehavior.Never));
-                SignInButton.Content = "Clear Cache";
-            }
-            catch (AdalException ex)
-            {
-                // There is no access token in the cache, so prompt the user to sign-in.
-                if (ex.ErrorCode == "user_interaction_required")
-                {
-                    if (!isAppStarting)
-                    {
-                        MessageBox.Show("Please sign in to view your To-Do list");
-                        SignInButton.Content = "Sign In";
-                    }
-                }
-                else
-                {
-                    // An unexpected error occurred.
-                    string message = ex.Message;
-                    if (ex.InnerException != null)
-                    {
-                        message += "Error Code: " + ex.ErrorCode + "Inner Exception : " + ex.InnerException.Message;
-                    }
-                    MessageBox.Show(message);
-                }
+			//
+			// Get an access token to call the To Do service.
+			//
 
-                return;
-            }
 
-            // Once the token has been returned by ADAL, add it to the http authorization header, before making the call to access the To Do list service.
-            httpClient.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", result.AccessToken);
+			// Once the token has been returned by ADAL, add it to the http authorization header, before making the call to access the To Do list service.
+			if (authResult == null)
+			{
+				authResult = await AdalDialog2Async(isAppStarting);
+			}
+
+			if (isAppStarting)
+			{
+				return;
+			}
+
+			httpClient.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", authResult.AccessToken);
 
             // Call the To Do list service.
             HttpResponseMessage response = await httpClient.GetAsync(todoListBaseAddress + "/api/todolist");
@@ -149,49 +136,44 @@ namespace TodoListClient
                 return;
             }
 
-            //
-            // Get an access token to call the To Do service.
-            //
-            AuthenticationResult result = null;
-            try
-            {
-                result = await authContext.AcquireTokenAsync(todoListResourceId, clientId, redirectUri, new PlatformParameters(PromptBehavior.Never));
-            }
-            catch (AdalException ex)
-            {
-                // There is no access token in the cache, so prompt the user to sign-in.
-                if (ex.ErrorCode == "user_interaction_required")
-                {
-                    MessageBox.Show("Please sign in first");
-                    SignInButton.Content = "Sign In";
-                }
-                else
-                {
-                    // An unexpected error occurred.
-                    string message = ex.Message;
-                    if (ex.InnerException != null)
-                    {
-                        message += "Error Code: " + ex.ErrorCode + "Inner Exception : " + ex.InnerException.Message;
-                    }
+			//
+			// Get an access token to call the To Do service.
+			//
 
-                    MessageBox.Show(message);
-                }
 
-                return;
-            }
+			//
+			// Call the To Do service.
+			//
 
-            //
-            // Call the To Do service.
-            //
+			// Once the token has been returned by ADAL, add it to the http authorization header, before making the call to access the To Do service.
+			//httpClient.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", result.AccessToken);
 
-            // Once the token has been returned by ADAL, add it to the http authorization header, before making the call to access the To Do service.
-            httpClient.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", result.AccessToken);
+			// direct login+password auth
+			if (authResult == null)
+			{
+				authResult = await AdalDialogAsync();
+			}
+			
+			// RestSharp
+			RestClient client = new RestClient(todoListBaseAddress);
+			RestRequest request = new RestRequest("/api/todolist", Method.POST);
+			request.AddParameter(
+				"Authorization", 
+				string.Format("Bearer " + authResult.AccessToken),
+				ParameterType.HttpHeader);
 
-            // Forms encode Todo item, to POST to the todo list web api.
-            HttpContent content = new FormUrlEncodedContent(new[] { new KeyValuePair<string, string>("Title", TodoText.Text) });
+			var json = JsonConvert.SerializeObject(new TodoItem() { Title = TodoText.Text } );
+			request.AddParameter("application/json; charset=utf-8", json, ParameterType.RequestBody);
+			var restResponse = client.Execute(request);
 
-            // Call the To Do list service.
-            HttpResponseMessage response = await httpClient.PostAsync(todoListBaseAddress + "/api/todolist", content);
+			//---------------------------------------------------------------
+			httpClient.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", authResult.AccessToken);
+
+			// Forms encode Todo item, to POST to the todo list web api.
+			HttpContent content = new FormUrlEncodedContent(new[] { new KeyValuePair<string, string>("Title", TodoText.Text) });
+
+			// Call the To Do list service.
+			HttpResponseMessage response = await httpClient.PostAsync(todoListBaseAddress + "/api/todolist", content);
 
             if (response.IsSuccessStatusCode)
             {
@@ -260,5 +242,122 @@ namespace TodoListClient
         [DllImport("wininet.dll", SetLastError = true)]
         private static extern bool InternetSetOption(IntPtr hInternet, int dwOption, IntPtr lpBuffer, int lpdwBufferLength);
 
-    }
+		private async void SignIn2Button_Click(object sender, RoutedEventArgs e)
+		{
+
+			authResult = await AdalAuthenticationAsync();
+			//await HttpAuthenticationAsync();
+		}
+
+		private static async Task HttpAuthenticationAsync()
+		{
+			//  Constants
+			var tenant = MainWindow.tenant;
+			var serviceUri = MainWindow.todoListResourceId;
+			var clientID = MainWindow.clientId;
+			var userName = "testuser@valeriilyincbsinteractive.onmicrosoft.com";
+			var password = "Test01xx";
+
+			using (var webClient = new WebClient())
+			{
+				var requestParameters = new NameValueCollection();
+
+				requestParameters.Add("resource", serviceUri);
+				requestParameters.Add("client_id", clientID);
+				requestParameters.Add("grant_type", "password");
+				requestParameters.Add("username", userName);
+				requestParameters.Add("password", password);
+				requestParameters.Add("scope", "openid");
+
+				var url = $"https://login.microsoftonline.com/{tenant}/oauth2/token";
+				var responsebytes = await webClient.UploadValuesTaskAsync(url, "POST", requestParameters);
+				var responsebody = Encoding.UTF8.GetString(responsebytes);
+			}
+		}
+
+		private static async Task<AuthenticationResult> AdalAuthenticationAsync()
+		{
+			//  Constants
+			var tenant = MainWindow.tenant;
+			var serviceUri = MainWindow.todoListResourceId;
+			var clientID = MainWindow.clientId;
+			var userName = "testuser@valeriilyincbsinteractive.onmicrosoft.com";
+			var password = "Test01xx";
+
+			//  Ceremony
+			var authority = "https://login.microsoftonline.com/" + tenant;
+			var authContext = new AuthenticationContext(authority);
+			var credentials = new UserPasswordCredential(userName, password);
+			var authResult = await authContext.AcquireTokenAsync(serviceUri, clientID, credentials);
+			return authResult;
+		}
+
+		private async Task<AuthenticationResult> AdalDialogAsync()
+		{
+			AuthenticationResult result = null;
+			try
+			{
+				result = await authContext.AcquireTokenAsync(todoListResourceId, clientId, redirectUri, new PlatformParameters(PromptBehavior.Never));
+			}
+			catch (AdalException ex)
+			{
+				// There is no access token in the cache, so prompt the user to sign-in.
+				if (ex.ErrorCode == "user_interaction_required")
+				{
+					MessageBox.Show("Please sign in first");
+					SignInButton.Content = "Sign In";
+				}
+				else
+				{
+					// An unexpected error occurred.
+					string message = ex.Message;
+					if (ex.InnerException != null)
+					{
+						message += "Error Code: " + ex.ErrorCode + "Inner Exception : " + ex.InnerException.Message;
+					}
+
+					MessageBox.Show(message);
+				}
+			}
+
+			return result;
+		}
+
+		private async Task<AuthenticationResult> AdalDialog2Async(bool isAppStarting)
+		{
+			AuthenticationResult result = null;
+			try
+			{
+				result = await authContext.AcquireTokenAsync(todoListResourceId, clientId, redirectUri, new PlatformParameters(PromptBehavior.Never));
+				SignInButton.Content = "Clear Cache";
+			}
+			catch (AdalException ex)
+			{
+				// There is no access token in the cache, so prompt the user to sign-in.
+				if (ex.ErrorCode == "user_interaction_required")
+				{
+					if (!isAppStarting)
+					{
+						MessageBox.Show("Please sign in to view your To-Do list");
+						SignInButton.Content = "Sign In";
+					}
+				}
+				else
+				{
+					// An unexpected error occurred.
+					string message = ex.Message;
+					if (ex.InnerException != null)
+					{
+						message += "Error Code: " + ex.ErrorCode + "Inner Exception : " + ex.InnerException.Message;
+					}
+					MessageBox.Show(message);
+				}
+
+			}
+
+			return result;
+		}
+			
+
+	}
 }
